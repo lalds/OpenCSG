@@ -56,3 +56,4 @@ __pycache__/
 # Native build directories
 build/
 cmake-build-*/
+artifacts/

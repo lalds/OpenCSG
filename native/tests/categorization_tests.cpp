@@ -137,12 +137,26 @@ int main() {
     first = compileCategorization(nodes, 3, children, 2, 1);
     require(run(first, {0,1,3}) == SurfaceState::Hidden, "Leading subtractive brush must not start a group");
 
-    // Explicitly reject unresolved scopes instead of returning a plausible wrong program.
+    // A group containing only cutters has no initial solid.
     nodes[2].operation = CSGOperation::Subtractive;
+    first = compileCategorization(nodes, 3, children, 2, 1);
+    require(run(first, {0,1,0}) == SurfaceState::Hidden, "All-cutter group must be empty");
+
+    // Empty groups retain their Boolean operation: A intersect empty is empty,
+    // whereas A union/subtract empty preserves A. They must not be pruned.
+    CategorizationNode emptyGroup[] = {{0,2,CSGOperation::Additive,0,0,0},
+        {0,0,CSGOperation::Additive,1,0,0}, {2,0,CSGOperation::Additive,0,0,0}};
+    for (int op = 0; op < 3; ++op) {
+        emptyGroup[2].operation = static_cast<CSGOperation>(op);
+        auto program = compileCategorization(emptyGroup, 3, children, 2, 1);
+        require(run(program, {0,1,0}) == (op == 2 ? SurfaceState::Hidden : SurfaceState::Aligned),
+                "Empty group Boolean semantics differ");
+    }
+    emptyGroup[2].childCount = -1;
     bool rejected = false;
-    try { compileCategorization(nodes, 3, children, 2, 1); }
+    try { compileCategorization(emptyGroup, 3, children, 2, 1); }
     catch (const std::invalid_argument&) { rejected = true; }
-    require(rejected, "All-nonadditive group must be rejected in current research scope");
+    require(rejected, "Negative branch span accepted");
     nodes[1].operation = CSGOperation::Additive;
     const int duplicate[] = {1,1};
     rejected = false;

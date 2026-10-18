@@ -89,18 +89,17 @@ CategorizationProgram compileCategorization(const CategorizationNode* nodes, int
             position[index] = static_cast<int>(order.size());
             order.push_back(index);
         } else {
-            if (node.infinite || node.firstChild < 0 || node.childCount <= 0
+            if (node.infinite || node.firstChild < 0 || node.childCount < 0
                 || node.firstChild > childCount || node.childCount > childCount - node.firstChild)
-                throw std::invalid_argument("Empty or invalid branch not yet supported");
+                throw std::invalid_argument("Invalid branch child span or flags");
             if (hints && hints[index] != 1)
                 throw std::invalid_argument("Resolved branch hints not yet supported");
-            bool additive = false;
             for (int i = 0; i < node.childCount; ++i) {
                 const int child = children[node.firstChild + i];
                 visit(child, depth + 1);
-                additive |= nodes[child].operation == CSGOperation::Additive;
             }
-            if (!additive) throw std::invalid_argument("Branch without additive child not yet supported");
+            // Generate/Undo can leave an empty group, or only cutters, in a
+            // valid tree. Both evaluate to empty space in build() below.
         }
         color[index] = 2;
     };

@@ -113,7 +113,8 @@ namespace RealtimeCSG
 					StartExtrudeMode(camera);
 				}
 				
-				Undo.RecordObject(this, "Modified Shape Height");
+				if (!undoReconciliation)
+					Undo.RecordObject(this, "Modified Shape Height");
 				extrusionPoints[1].Position = extrusionPoints[0].Position + (direction * cleanValue);
 				UpdateBaseShape();
 			}
@@ -263,6 +264,9 @@ namespace RealtimeCSG
 
 		protected bool UpdateExtrudedShape(bool registerUndo = true)
 		{
+			// Some UpdateBaseShape overrides omit forwarding registerUndo; keep Undo callbacks safe here.
+			registerUndo &= !undoReconciliation;
+
 			if (polygons == null || polygons.Length == 0)
 				return false;
 
@@ -792,7 +796,8 @@ namespace RealtimeCSG
 							break;
 						if (GUIUtility.hotControl == extrusionPoints[p].ID)// && Event.current.button == 0)
 						{
-							Undo.RecordObject(this, "Extrude shape");
+							if (!undoReconciliation)
+								Undo.RecordObject(this, "Extrude shape");
 							heightPosition += Event.current.delta;
 							Vector3 worldPosition = GetHeightHandlePosition(sceneView, extrusionPoints[p].Position) - heightHandleOffset;
 							if (float.IsInfinity(worldPosition.x) || float.IsNaN(worldPosition.x) ||

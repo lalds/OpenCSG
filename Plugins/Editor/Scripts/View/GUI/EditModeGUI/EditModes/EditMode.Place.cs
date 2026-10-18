@@ -224,6 +224,9 @@ namespace RealtimeCSG
 					return;
 			}
 
+			// Hover indices and drag state belong to the previous target array.
+			// Selection changes (including Undo) can happen between Layout and MouseDown.
+			ResetTool();
 			brushes					= newBrushes;
 			topTransforms			= newTopTransforms;
 			
@@ -273,6 +276,7 @@ namespace RealtimeCSG
 			worldSpacePivotCenter		= Vector3.zero;
 
 			toolEditMode			= ToolEditMode.None;
+			mouseIsDragging         = false;
 			cloneDragKeyPressed		= false;
 				
 			startCamera				= null;
@@ -606,7 +610,7 @@ namespace RealtimeCSG
 
 		public bool UndoRedoPerformed()
 		{
-			//CSGModelManager.Refresh(forceHierarchyUpdate: true);
+			ResetTool();
 			return false;
 		}
 
@@ -1787,7 +1791,7 @@ namespace RealtimeCSG
 							 Tools.current == Tool.Move))// && Event.current.modifiers == EventModifiers.None)
 						{
 							int newControlID = -1;
-							if (hoverOnTarget != -1)
+							if (hoverOnTarget >= 0 && hoverOnTarget < brushControlIDs.Length)
 							{
 								if (Event.current.modifiers == EventModifiers.None ||
 									 Event.current.modifiers == EventModifiers.Shift ||

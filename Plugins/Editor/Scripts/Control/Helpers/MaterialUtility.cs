@@ -168,6 +168,13 @@ namespace RealtimeCSG
                 return true;
             }
 
+            if( material.HasProperty( "_BaseMap" ) )
+            {
+                mainTexTag = "_BaseMap";
+
+                return true;
+            }
+
             if( material.HasProperty( "_MainTex" ) )
             {
                 mainTexTag = "_MainTex";
@@ -180,15 +187,12 @@ namespace RealtimeCSG
             return false;
         }
 
-        /*
-         * 1: Check that we actually have the material were looking for
-         * 2: Find RP type, and then create any neccessary directories
-         * 3: If we arent on the built-in RP, then update the material to the default material shader for the current RP
-         *   3.1: Stop entirely if the default material shader doesnt have a compatible default main texture property
-         * 4: Save the changes to disk
-         */
+        // Only bundled defaults are passed here. User materials are never migrated or saved.
         private static void GenerateBuiltinPipelineMaterial( string name )
         {
+            if (name != WallMaterialName && name != FloorMaterialName && name != WindowMaterialName && name != MetalMaterialName)
+                return;
+
             Material material = Resources.Load<Material>( string.Format( "{0}{1}", "RealtimeCSG/Materials/", name ) );
 
             if( material == null )
@@ -198,76 +202,65 @@ namespace RealtimeCSG
                 return;
             }
 
-            if( GraphicsSettings.renderPipelineAsset != null ) // if we are using any RP
+            var pipelineAsset = GraphicsSettings.renderPipelineAsset;
+            var targetShader = pipelineAsset ? pipelineAsset.defaultMaterial ? pipelineAsset.defaultMaterial.shader : null : Shader.Find("Standard");
+            if (!targetShader)
             {
-                AssetDatabase.StartAssetEditing();
-
-                string pipelineShader = GraphicsSettings.renderPipelineAsset.defaultMaterial.shader.name;
-
-                material.shader = Shader.Find( pipelineShader );
-
-                if( material.shader.name == pipelineShader ) // if our shader is already the default RP shader, then don't do anything
-                {
-                    AssetDatabase.StopAssetEditing();
-
-                    return;
-                }
-
-                string mainTexTag;
-
-                if( TryGetShaderMainTex( material, out mainTexTag ) )
-                {
-                    material.SetTexture( mainTexTag, Resources.Load<Texture2D>( string.Format( "RealtimeCSG/Textures/{0}", name ) ) );
-
-                    if( material.name.Equals( "Metal" ) )
-                    {
-                        // if the material is the built-in metal texture, then we'll set its metalness to 100%
-
-                        if( material.HasProperty( "_Metallic" ) )
-                        {
-                            material.SetFloat( "_Metallic", 1f );
-                            material.SetFloat( "_Smoothness", 1f );
-                            material.SetTexture( "_MetallicGlossMap", Resources.Load<Texture2D>( "RealtimeCSG/Textures/checker_m" ) );
-                        }
-
-                        if( material.HasProperty( "_DetailAlbedoMap" ) )
-                        {
-                            material.SetTexture( "_DetailAlbedoMap", Resources.Load<Texture2D>( "RealtimeCSG/Textures/checker" ) );
-                        }
-                    }
-                }
-                else // we failed to find any default RP shader, so we'll just abort early
-                {
-                    AssetDatabase.StopAssetEditing();
-
-                    Debug.LogErrorFormat( "Could not find a compatible default render pipeline shader. Shader '{0}' does not contain any properties named '_MainTex', '_Albedo', '_Diffuse', or '_BaseColorMap'." );
-
-                    return;
-                }
-
-                AssetDatabase.StopAssetEditing();
-                EditorUtility.SetDirty( material );
-
-                // SaveAssetsIfDirty doesn't exist on versions older than 2020.3.16
-#if UNITY_2020_3_OR_NEWER && ! (UNITY_2020_3_0 || UNITY_2020_3_1 || UNITY_2020_3_2 || UNITY_2020_3_3 || UNITY_2020_3_4 || UNITY_2020_3_5 || UNITY_2020_3_6 || UNITY_2020_3_7 || UNITY_2020_3_8 || UNITY_2020_3_9 || UNITY_2020_3_10 || UNITY_2020_3_11 || UNITY_2020_3_12 || UNITY_2020_3_13 || UNITY_2020_3_14 || UNITY_2020_3_15)
-                AssetDatabase.SaveAssetIfDirty( material );
-#else
-                AssetDatabase.SaveAssets();
-#endif
-
-                AssetDatabase.Refresh( ImportAssetOptions.ForceUpdate );
-                Resources.UnloadUnusedAssets();
+                Debug.LogWarning("Could not find the default material shader for the active render pipeline.");
+                return;
             }
-            
-            // using built-in, just dont do anything.
+
+            // Cache values before changing the shader; broken bundled shader references may report no properties.
+            var color = material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor") :
+                        material.HasProperty("_Color") ? material.GetColor("_Color") : Color.white;
+            var targetTexture = Resources.Load<Texture2D>(string.Format("RealtimeCSG/Textures/{0}", name));
+            var shaderChanged = material.shader != targetShader;
+            var textureNeedsUpdate = targetTexture && (!TryGetShaderMainTex(material, out var currentMainTex) || material.GetTexture(currentMainTex) != targetTexture);
+            if (!shaderChanged && !textureNeedsUpdate)
+                return;
+
+            material.shader = targetShader;
+            if (shaderChanged)
+            {
+                if (material.HasProperty("_Color")) material.SetColor("_Color", color);
+                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+            }
+
+            if (!TryGetShaderMainTex(material, out var mainTexTag))
+            {
+                Debug.LogWarningFormat("Default shader '{0}' for bundled material '{1}' has no supported base texture property.", targetShader.name, name);
+                return;
+            }
+
+            if (targetTexture)
+                material.SetTexture(mainTexTag, targetTexture);
+
+            // Keep the bundled Metal material's intended metallic response when migrating shaders.
+            if (name == MetalMaterialName && shaderChanged)
+            {
+                if (material.HasProperty("_Metallic"))
+                {
+                    material.SetFloat("_Metallic", 1f);
+                    if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", 1f);
+                    if (material.HasProperty("_MetallicGlossMap"))
+                        material.SetTexture("_MetallicGlossMap", Resources.Load<Texture2D>("RealtimeCSG/Textures/checker_m"));
+                }
+                if (material.HasProperty("_DetailAlbedoMap"))
+                    material.SetTexture("_DetailAlbedoMap", Resources.Load<Texture2D>("RealtimeCSG/Textures/checker"));
+            }
+
+            EditorUtility.SetDirty(material);
+            // Save only when the bundled asset actually needed migration; getters then remain cheap and idempotent.
+#if UNITY_2020_3_OR_NEWER && ! (UNITY_2020_3_0 || UNITY_2020_3_1 || UNITY_2020_3_2 || UNITY_2020_3_3 || UNITY_2020_3_4 || UNITY_2020_3_5 || UNITY_2020_3_6 || UNITY_2020_3_7 || UNITY_2020_3_8 || UNITY_2020_3_9 || UNITY_2020_3_10 || UNITY_2020_3_11 || UNITY_2020_3_12 || UNITY_2020_3_13 || UNITY_2020_3_14 || UNITY_2020_3_15)
+            AssetDatabase.SaveAssetIfDirty(material);
+#else
+            AssetDatabase.SaveAssets();
+#endif
         }
 
         internal static Material GetRuntimeMaterial( string materialName )
         {
-            GenerateBuiltinPipelineMaterial( WallMaterialName );
-            GenerateBuiltinPipelineMaterial( FloorMaterialName );
-            GenerateBuiltinPipelineMaterial( WindowMaterialName );
-            GenerateBuiltinPipelineMaterial( MetalMaterialName );
+            GenerateBuiltinPipelineMaterial(materialName);
 
             return Resources.Load<Material>( string.Format( "RealtimeCSG/Materials/{0}", materialName ) );
         }

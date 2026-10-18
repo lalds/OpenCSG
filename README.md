@@ -1,95 +1,153 @@
-This github page holds the updated version of the Unity plugin Realtime-CSG
+# OpenCSG
 
-If you use this plugin, please let us know, we'd love to see what you've done with it!
+Открытое геометрическое ядро для RealtimeCSG с поддержкой Linux. Проект использует
+исходный C# редактор RealtimeCSG и новую реализацию native-библиотеки на C++,
+совместимую с его интерфейсом вызовов.
 
-![Example](Readme/Images/house_view.png)
-<sup>Programmer art example. Note: couch, plants and some other small props are meshes, not CSG</sup>
+Цель — сохранить редактор CSG для Unity и обеспечить совместную работу на Linux
+и Windows. Это рабочая alpha-версия, а не полное восстановление исходного C++ кода
+или подтверждённая замена всех функций оригинала.
 
+## Совместимость
 
-**How to install**:
----
-**Git (Requires having [git](https://git-scm.com/) installed)**
+| Компонент | Статус |
+| --- | --- |
+| Linux x86_64, Unity Editor | Проверено на Unity 2022.3.62f3 LTS |
+| Более новые версии Unity | Не проверены |
+| Built-in Render Pipeline | Проверены материалы и отрисовка контрольной сцены |
+| URP / HDRP | Есть код адаптации материалов; полная работа не проверена |
+| Открытое ядро для Windows / macOS | Сборки и работа в Unity не проверены |
+| ARM | Не проверено |
 
-* In the `Assets/` or `Packages/` folder of your project, in the command line, use the git command `git clone https://github.com/LogicalError/realtime-CSG-for-unity.git RealtimeCSG`
+Оригинальный C# интерфейс содержит Place, Generate, Edit, Clip и Surfaces.
+Наличие инструмента в интерфейсе не означает полного совпадения его поведения
+с оригинальным ядром. Редактор предназначен для создания CSG-геометрии в Unity
+Editor; редактирование во время игры не входит в проверенный сценарий.
 
-**Manual Download**
+## Что проверено
 
-* [Download this repo](https://github.com/LogicalError/realtime-CSG-for-unity/archive/refs/heads/master.zip)
-* Copy the folder in the downloaded zip to anywhere in your `Assets/` folder, or to the `Packages/` folder.
-* Rename the downloaded folder to `RealtimeCSG`
+- Объединение, вычитание и пересечение замкнутых выпуклых brushes.
+- Создание Box, Cylinder, Sphere и полусферы; изменение размеров и Cancel.
+- Изменение вершин ControlMesh, пересчёт мешей и отдельные сценарии Undo/Redo.
+- Пустые группы, вложенные операции, смена выделения и переподчинение объектов.
+- Выбор лучом, запрос контуров, базовая UV-проекция и штатные материалы.
+- Сохранение и повторное открытие контрольной сцены.
 
-**Unity Package Manager (UPM)**
+Последний набор: 124 проверки в Unity, 27 CTest при наличии Mono и 26 native
+тестов с ASan/UBSan. Отдельно проверена отрисовка сцены с вычитанием через OpenGL.
+Эти проверки покрывают конкретные сценарии, а не весь функционал редактора.
 
-* Open up the package manager in Window/Package Manager
-* Press the + button in the top left corner and select Install package from Git URL
-* Import the project by entering `https://github.com/LogicalError/realtime-CSG-for-unity.git` into the text field  
+## Сборка на Linux
 
----
+Нужны CMake 3.16+, Ninja, компилятор C++17 и Python 3.8+. Для запуска редактора
+нужна установленная Unity 2022.3 LTS. Mono (`mcs` и `mono`) нужен только для
+дополнительного теста managed-моста.
 
-**Updating:**
----
-**Git**
+Команды выполняются из корня репозитория:
 
-* Run `git merge master` in the console, from the RealtimeCSG folder
+```sh
+cmake -S native -B /tmp/opencsg-build -G Ninja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DRCSG_BUILD_UNITY_COMPAT_PLUGIN=ON \
+  -DBUILD_TESTING=ON
+cmake --build /tmp/opencsg-build -j 4
+ctest --test-dir /tmp/opencsg-build --output-on-failure
+```
 
-**Manual Update**
-* Close Unity
-* Delete the RealtimeCSG folder
-* Repeat the steps from "Manual Download" above
+Результат — две библиотеки, которые нужно держать рядом:
 
-**Unity Package Manager (UPM)**
-* Simpy update the package
+- `libRealtimeCSG[1_559].so` — интерфейс для исходного C# редактора;
+- `librealtimecsg_recovered_geometry.so` — геометрическое ядро.
 
----
+Опция `RCSG_BUILD_UNITY_COMPAT_PLUGIN` обязательна для сборки библиотеки редактора.
 
-**FAQs:**
----
+## Подготовка проекта Unity
 
-**Q: Does RealtimeCSG support runtime editing?**
+Укажи путь к своему исполняемому файлу Unity:
 
-  * A: **No.** RealtimeCSG does **not** support or have API for runtime editing. This does not stop you from using the native binary to create your own bindings to use. We do not provide support for that, so you are on your own in doing this. If you are unsure where to start, [then you can check out the native folder](https://github.com/LogicalError/realtime-CSG-for-unity/tree/master/Plugins/Editor/Scripts/Control/Bindings), which has the bindings that RealtimeCSG uses.
+```sh
+UNITY_EDITOR="/path/to/Unity/Editor/Unity"
+python3 tools/prepare_original_editor.py \
+  --project artifacts/OriginalEditor \
+  --build /tmp/opencsg-build \
+  --unity "$UNITY_EDITOR"
+```
 
-**Q: How do I turn RealtimeCSG off in the editor?**
+Скрипт создаёт отдельный проект, копирует C# редактор и открытые Linux-библиотеки.
+Старые закрытые Windows/macOS библиотеки в этот проект не попадают.
+Скрипт отказывается изменять посторонний проект или проект, открытый в Unity.
 
-  * A: Simply press CTRL+F3 to toggle it!
+Для проверки и экспорта пакета выполни в графическом сеансе Linux:
 
-**Q: Can I use RealtimeCSG to edit other meshes?**
+```sh
+"$UNITY_EDITOR" -batchmode -force-glcore \
+  -projectPath "$PWD/artifacts/OriginalEditor" \
+  -executeMethod RealtimeCSG.Recovery.OriginalEditorSmoke.BatchSmoke \
+  -logFile "$PWD/artifacts/original-editor.log"
+```
 
-  * A: No. RealtimeCSG is intended to work with its own brushes, which generates its own output mesh. It cannot be used for that purpose.
+Проверка сама завершает Unity; `-quit` добавлять не нужно. После успешного запуска
+в корне подготовленного проекта появятся `OriginalEditorReport.json`,
+`OriginalEditorScene.txt` и `OpenCSG-OriginalEditor.unitypackage`.
+Сгенерированные проекты, пакеты и отчёты не хранятся в Git.
 
-**Q: Can I have access to the native C++ code?**
+Далее:
 
-  * A: No. Unless stated otherwise, it will not be available to the public. Sorry for that.
+1. Добавь `artifacts/OriginalEditor` в Unity Hub.
+2. Открой сцену по пути из `OriginalEditorScene.txt` или создай новую.
+3. Выбери `Tools > OpenCSG > Create demo model` для примера.
+4. Открой `Tools > OpenCSG > Open CSG editor` и выбери режим работы.
 
-**Q: Is there a build of the native binary for my OS distro?**
+Для своего проекта импортируй полученный `.unitypackage`. При обновлении
+native-библиотек полностью перезапусти Unity: перекомпиляция C# не заменяет уже
+загруженную `.so`. Существующий цилиндр со старым разбиением крышек нужно создать
+заново, чтобы применить исправление топологии.
 
- * A: RealtimeCSG currently supports the following platforms:
-   - Windows x64
-   - MacOS
+Прямой импорт всего репозитория через UPM не является описанным здесь способом
+установки Linux-версии. Используй подготовщик и экспортированный пакет.
 
-   There are plans and work being done in the background to bring support to Linux. This does not mean it will support *all* linux distros. Just the popular ones like Debian, Ubuntu, Mint, etc.
+## Ограничения
 
-   Unsupported platforms:
-   - Any ARM platforms. We don't have access to an ARM system. This may/may not change if one of us gets one, but it is unlikely.
+- Smoothing groups не реализованы; нормали плоские.
+- Полная совместимость Clip, surface tools, сложных вложенных групп и всех
+  генераторов с оригинальным ядром не подтверждена.
+- Произвольная невыпуклая и вырожденная геометрия может отклоняться. Неудачная
+  сборка сохраняет последний корректный результат, поэтому он может отставать
+  от редактируемого объекта до исправления геометрии.
+- Мировая привязка UV пока использует координаты модели; трансформации модели
+  могут давать результат, отличный от оригинала.
+- Контуры используют исходные рёбра без полной классификации видимости после
+  CSG. Служебные меши удалённых фрагментов восстановлены не полностью.
+- Infinite brushes, synchronized/offset сцены и все численные крайние случаи
+  не входят в проверенную совместимость.
 
-**Q: Can I build RealtimeCSG for another OS?**
+Обмен сценами между оригиналом на Windows и этой версией на Linux возможен
+на уровне общих C# структур, но совпадение результата двух ядер не гарантируется.
+Перед совместной работой проверьте обмен тестовой сценой в обе стороны.
 
-  * A: See "Can I have access to the native C++ code?".
+## Структура
 
-**Links:**
----
+| Путь | Содержимое |
+| --- | --- |
+| `Plugins/` | Исходный редактор RealtimeCSG и изменения совместимости |
+| `native/recovered/` | Открытая реализация геометрии и интерфейса плагина |
+| `native/include/` | Заголовки C++ и C ABI |
+| `native/managed/` | Managed-мост и отдельный ранний прототип |
+| `native/tests/` | Native-тесты и проверки Unity |
+| `tools/` | Подготовка проектов и инструменты исследования бинарников |
+| `docs/` | Устройство ядра, результаты исследования и ограничения |
 
-* **Discord server**: https://discord.gg/BK5gt8R
-* **Project website**: [https://logicalerror.github.io](https://logicalerror.github.io/realtime-csg/index.html)
-* **Asset Store (outdated)**: https://assetstore.unity.com/packages/tools/modeling/realtime-csg-69542
+В `Plugins/Editor/External/` сохранены оригинальные бинарники из upstream для
+исследования и сопоставления поведения. Они не являются открытой реализацией
+ядра и не включаются в подготовленный Linux-пакет.
 
----
+## Документация и происхождение
 
-**Contributing:**
----
+- [Редактор Unity: запуск, управление и проверки](docs/original-editor.ru.md)
+- [Состояние восстановления ядра](docs/native-recovery.ru.md)
+- [Ранний отдельный прототип](docs/prototype.ru.md)
+- [Исходный RealtimeCSG](https://github.com/LogicalError/realtime-CSG-for-unity)
 
-* Fork this repo
-* Create your own branch
-* Submit a PR (do not submit PRs from the master branch of your fork)
-
-<sub>README last updated August 9th, 2023</sub>
+Сохранены авторство и файл [MIT License](LICENSE.md) исходного проекта.
+Открытая реализация ядра находится в `native/`; исходный код оригинальных
+закрытых библиотек этим репозиторием не предоставляется.

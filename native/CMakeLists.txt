@@ -22,6 +22,32 @@ else()
     target_compile_options(realtimecsg_recovered_geometry PRIVATE -Wall -Wextra -Wpedantic -ffp-contract=off)
 endif()
 
+option(RCSG_BUILD_UNITY_COMPAT_PLUGIN "Build the experimental original Unity plugin ABI backend" OFF)
+if(RCSG_BUILD_UNITY_COMPAT_PLUGIN)
+add_library(realtimecsg_unity_plugin SHARED
+    recovered/plugin_registry.cpp
+    recovered/plugin_mesh.cpp
+    recovered/plugin_api.cpp
+    recovered/plugin_queries.cpp
+)
+set_target_properties(realtimecsg_unity_plugin PROPERTIES
+    OUTPUT_NAME "RealtimeCSG[1_559]"
+    PREFIX "lib"
+    BUILD_WITH_INSTALL_RPATH ON
+    INSTALL_RPATH "$ORIGIN"
+)
+target_compile_definitions(realtimecsg_unity_plugin PRIVATE REALTIMECSG_EXPORT_DLL)
+target_include_directories(realtimecsg_unity_plugin PUBLIC include)
+target_compile_features(realtimecsg_unity_plugin PUBLIC cxx_std_17)
+target_link_libraries(realtimecsg_unity_plugin PRIVATE Threads::Threads realtimecsg_recovered_geometry)
+if(MSVC)
+    target_compile_options(realtimecsg_unity_plugin PRIVATE /W4 /fp:strict)
+    set_target_properties(realtimecsg_unity_plugin PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+else()
+    target_compile_options(realtimecsg_unity_plugin PRIVATE -Wall -Wextra -Wpedantic -ffp-contract=off)
+endif()
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(recovered_geometry_tests tests/geometry_tests.cpp)
@@ -99,6 +125,12 @@ if(BUILD_TESTING)
     add_executable(recovered_scene_api_tests tests/scene_api_tests.cpp)
     target_link_libraries(recovered_scene_api_tests PRIVATE realtimecsg_recovered_geometry Threads::Threads)
     add_test(NAME recovered_scene_api COMMAND recovered_scene_api_tests)
+
+    if(TARGET realtimecsg_unity_plugin)
+    add_executable(plugin_api_tests tests/plugin_api_tests.cpp)
+    target_link_libraries(plugin_api_tests PRIVATE realtimecsg_unity_plugin Threads::Threads)
+    add_test(NAME plugin_api COMMAND plugin_api_tests)
+    endif()
     find_program(RCSG_MCS_EXECUTABLE mcs)
     find_program(RCSG_MONO_EXECUTABLE mono)
     # CLR hosting is checked in the normal build; ASan/UBSan cover native tests.

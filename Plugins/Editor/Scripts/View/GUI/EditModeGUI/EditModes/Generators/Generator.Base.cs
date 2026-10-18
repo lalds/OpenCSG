@@ -64,6 +64,7 @@ namespace RealtimeCSG
 		[SerializeField] protected CSGBrush[]		generatedBrushes;
 		
 		[NonSerialized] protected int				undoGroupIndex;
+		[NonSerialized] protected bool			undoReconciliation;
 
 		[NonSerialized] protected List<Vector3>		visualSnappedEdges; // used to visualize edges which we're snapping against
 		[NonSerialized] protected List<Vector3>		visualSnappedGrid;	// used to visualize grid lines we're snapping against	
@@ -426,8 +427,11 @@ namespace RealtimeCSG
 
 		protected bool GenerateBrushObjects(int brushObjectCount, bool inGridSpace = true)
 		{
-			Undo.IncrementCurrentGroup();
-			undoGroupIndex = Undo.GetCurrentGroup();
+			if (!undoReconciliation)
+			{
+				Undo.IncrementCurrentGroup();
+				undoGroupIndex = Undo.GetCurrentGroup();
+			}
 
             var lastUsedModel			= SelectionUtility.LastUsedModel;
             if (!ModelTraits.IsModelEditable(lastUsedModel))
@@ -525,7 +529,7 @@ namespace RealtimeCSG
 					parentGameObject = OperationsUtility.CreateGameObject(lastUsedModelTransform, "Model", true);
 					InternalCSGModelManager.CreateCSGModel(parentGameObject);
 					parentModel = parentGameObject.GetComponent<CSGModel>();
-					Undo.RegisterCreatedObjectUndo(parentGameObject, "Created model");
+					if (!undoReconciliation) Undo.RegisterCreatedObjectUndo(parentGameObject, "Created model");
 
 					if (brushObjectCount > 1)
 					{
@@ -537,7 +541,7 @@ namespace RealtimeCSG
 						if (CurrentCSGOperationType != invalidCSGOperationType)							
 							operation.OperationType = CurrentCSGOperationType;
 						operation.HandleAsOne = true;
-						Undo.RegisterCreatedObjectUndo(operationGameObject, "Created operation");
+						if (!undoReconciliation) Undo.RegisterCreatedObjectUndo(operationGameObject, "Created operation");
 						parentTransform = operationGameObject.transform;
 					} else
 					{
@@ -557,7 +561,7 @@ namespace RealtimeCSG
 						operation.OperationType = CurrentCSGOperationType;
 					operation.HandleAsOne = true;
 					parentTransform = operationGameObject.transform;
-					Undo.RegisterCreatedObjectUndo(parentGameObject, "Created brush");
+					if (!undoReconciliation) Undo.RegisterCreatedObjectUndo(parentGameObject, "Created brush");
 				} else
 				{
 					parentGameObject = null;
@@ -593,7 +597,7 @@ namespace RealtimeCSG
 					generatedBrushes[p] = brushComponent;
 					generatedBrushes[p].ControlMesh = new ControlMesh();
 					generatedBrushes[p].Shape = new Shape();
-					Undo.RegisterCreatedObjectUndo(gameObject, "Created brush");
+					if (!undoReconciliation) Undo.RegisterCreatedObjectUndo(gameObject, "Created brush");
 					generatedGameObjects[p] = gameObject;
 				}
 				//InternalCSGModelManager.Refresh(forceHierarchyUpdate: true);
@@ -643,11 +647,20 @@ namespace RealtimeCSG
 
 		public bool UndoRedoPerformed()
 		{
-			if (UpdateBaseShape(registerUndo: false))
-				return false;
+			var previousUndoReconciliation = undoReconciliation;
+			undoReconciliation = true;
+			try
+			{
+				if (UpdateBaseShape(registerUndo: false))
+					return false;
 
-			Cancel();
-			return true;
+				Cancel();
+				return true;
+			}
+			finally
+			{
+				undoReconciliation = previousUndoReconciliation;
+			}
 		}
 
 		public virtual void HandleEvents(SceneView sceneView, Rect sceneRect)
